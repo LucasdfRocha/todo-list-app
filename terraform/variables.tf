@@ -73,15 +73,3 @@ variable "kubernetes_namespace" {
   default     = "default"
 }
 
-variable "codebuild_service_role_name" {
-  description = "Name of the IAM service role for CodeBuild (if role exists, leave empty to use ARN directly)"
-  type        = string
-  default     = "codebuild-asn-demo-lab-service-role"
-}
-
-variable "codebuild_service_role_arn" {
-  description = "ARN of the IAM service role for CodeBuild. If provided, will be used instead of looking up by name. Format: arn:aws:iam::ACCOUNT_ID:role/service-role/ROLE_NAME"
-  type        = string
-  default     = null
-}
-

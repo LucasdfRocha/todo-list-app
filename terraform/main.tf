@@ -32,26 +32,15 @@ resource "aws_ecr_repository" "todo_app" {
 }
 
 # IAM Role for CodeBuild
-# Try to get role by name, but allow using ARN directly if role doesn't exist or can't be accessed
 data "aws_iam_role" "codebuild_service_role" {
-  count = var.codebuild_service_role_arn == null ? 1 : 0
-  name  = var.codebuild_service_role_name
-}
-
-locals {
-  # Use provided ARN, or construct from account ID and role name, or use data source ARN
-  codebuild_service_role_arn = var.codebuild_service_role_arn != null ? var.codebuild_service_role_arn : (
-    length(data.aws_iam_role.codebuild_service_role) > 0 ? 
-    data.aws_iam_role.codebuild_service_role[0].arn : 
-    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/service-role/${var.codebuild_service_role_name}"
-  )
+  name = "codebuild-asn-demo-lab-service-role"
 }
 
 # CodeBuild Project
 resource "aws_codebuild_project" "todo_app_build" {
   name          = var.codebuild_project_name
   description   = "Build and push todo-list-app Docker image to ECR"
-  service_role  = local.codebuild_service_role_arn
+  service_role  = data.aws_iam_role.codebuild_service_role.arn
   build_timeout = 60
 
   artifacts {
