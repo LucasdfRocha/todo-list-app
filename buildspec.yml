@@ -1,3 +1,4 @@
+---
 version: 0.2
 
 env:
@@ -5,59 +6,72 @@ env:
     AWS_DEFAULT_REGION: "us-east-1"
 
 phases:
+  install:
+    commands:
+      - echo "Instalando kubectl"
+      - set -e
+      - >
+        curl -fsSL -o /usr/local/bin/kubectl
+        "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl"
+      - chmod +x /usr/local/bin/kubectl
+      - echo "Verificando kubectl"
+      - file /usr/local/bin/kubectl || true
+      - >
+        head -c 4 /usr/local/bin/kubectl | hexdump -C || true
+      - >
+        kubectl version --client --output=yaml ||
+        (echo 'kubectl inválido' && exit 1)
+
   pre_build:
     commands:
-      - echo "Logging in to Amazon ECR..."
+      - echo "Login no ECR"
       - aws --version
-      - echo "$AWS_ACCOUNT_ID"
-      - echo "$IMAGE_REPO_NAME"
+      - >
+        ECR_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
+        export ECR_URI
       - >
         aws ecr get-login-password --region $AWS_DEFAULT_REGION |
-        docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
-      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
-      - IMAGE_TAG=${COMMIT_HASH}-$(date +%Y%m%d%H%M%S)
-      - echo "Image tag: $IMAGE_TAG"
-      - echo "Repository URI: $REPOSITORY_URI"
+        docker login --username AWS --password-stdin $ECR_URI
+      - >
+        COMMIT_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)
+        export COMMIT_TAG
+      - echo "CommitTag=$COMMIT_TAG"
 
   build:
     commands:
-      - echo "Build started on $(date)"
-      - echo "Building the Docker image..."
-      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
-      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $REPOSITORY_URI:$IMAGE_TAG
-      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $REPOSITORY_URI:latest
+      - echo "Buildando imagem..."
+      - docker build -t $ECR_URI:$COMMIT_TAG -t $ECR_URI:latest .
 
   post_build:
     commands:
-      - echo "Build completed on $(date)"
-      - echo "Pushing the Docker images..."
-      - docker push $REPOSITORY_URI:$IMAGE_TAG
-      - docker push $REPOSITORY_URI:latest
-      - echo "Writing image definitions file..."
-      - printf '{"ImageURI":"%s"}' $REPOSITORY_URI:$IMAGE_TAG > imageDetail.json
-      - cat imageDetail.json
-      - |
-        echo "Installing kubectl..."
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-        chmod +x kubectl
-        mv kubectl /usr/local/bin/
-        kubectl version --client
-      - |
-        echo "Updating Kubernetes deployment with new image tag..."
-        sed -i.bak "s|image:.*todo-list-app.*|image: $REPOSITORY_URI:$IMAGE_TAG|g" k8s/deployment.yaml
-        cat k8s/deployment.yaml
-      - |
-        echo "Configuring kubectl for EKS cluster: $EKS_CLUSTER_NAME"
-        aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_DEFAULT_REGION
-      - |
-        echo "Deploying to Kubernetes namespace: $KUBERNETES_NAMESPACE"
-        kubectl apply -f k8s/deployment.yaml -n $KUBERNETES_NAMESPACE
-        kubectl rollout status deployment/todo-list-app -n $KUBERNETES_NAMESPACE --timeout=300s || true
-        echo "Deployment completed successfully!"
+      - echo "Fazendo push..."
+      - docker push $ECR_URI:$COMMIT_TAG
+      - docker push $ECR_URI:latest
+      - >
+        printf '{"ImageURI":"%s"}' "$ECR_URI:$COMMIT_TAG" >
+        imageDetail.json
+      - echo "Configurando kubeconfig para $EKS_CLUSTER_NAME"
+      - >
+        aws eks update-kubeconfig --name $EKS_CLUSTER_NAME
+        --region $AWS_DEFAULT_REGION
+      - echo "Lendo imagem do imageDetail.json..."
+      - >
+        IMAGE_URI=$(python -c
+        'import json,sys,os; p=os.path.join(os.getcwd(),"imageDetail.json");
+        print(json.load(open(p))["ImageURI"])')
+        export IMAGE_URI
+      - echo "Nova_imagem=$IMAGE_URI"
+      - test -n "$IMAGE_URI" ||
+        (echo 'IMAGE_URI vazio' && exit 1)
+      - >
+        kubectl -n $KUBERNETES_NAMESPACE set image
+        deployment/todo-list-app todo-list-app=$IMAGE_URI
+      - >
+        kubectl -n $KUBERNETES_NAMESPACE rollout status
+        deployment/todo-list-app --timeout=120s
 
 artifacts:
   files:
     - imageDetail.json
-    - k8s/deployment.yaml
+    - k8s/*.yaml
   name: build-output
