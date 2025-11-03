@@ -13,16 +13,16 @@ phases:
       - aws --version
       - echo $AWS_ACCOUNT_ID
       - echo $IMAGE_REPO_NAME
-      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
-      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
-      - IMAGE_TAG=${COMMIT_HASH}-$(date +%Y%m%d%H%M%S)
+  - "aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com"
+  - "REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME"
+  - "COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)"
+  - "IMAGE_TAG=${COMMIT_HASH}-$(date +%Y%m%d%H%M%S)"
       - echo Image tag: $IMAGE_TAG
       - echo Repository URI: $REPOSITORY_URI
 
   build:
     commands:
-      - echo Build started on `date`
+  - "echo Build started on $(date)"
       - echo Building the Docker image...
       - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
       - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $REPOSITORY_URI:$IMAGE_TAG
@@ -30,7 +30,7 @@ phases:
 
   post_build:
     commands:
-      - echo Build completed on `date`
+  - "echo Build completed on $(date)"
       - echo Pushing the Docker images...
       - docker push $REPOSITORY_URI:$IMAGE_TAG
       - docker push $REPOSITORY_URI:latest
@@ -47,7 +47,7 @@ phases:
       - |
         # Update Kubernetes deployment file with new image tag
         echo "Updating Kubernetes deployment with new image tag..."
-        sed -i.bak "s|image:.*todo-list-app.*|image: $REPOSITORY_URI:$IMAGE_TAG|g" k8s/deployment.yaml
+        sed -i.bak "s|image:.todo-list-app.|image: $REPOSITORY_URI:$IMAGE_TAG|g" k8s/deployment.yaml
         cat k8s/deployment.yaml
       - |
         # Configure kubectl for EKS cluster
@@ -65,4 +65,3 @@ artifacts:
     - imageDetail.json
     - k8s/deployment.yaml
   name: build-output
-
